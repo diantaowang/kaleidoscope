@@ -1,3 +1,4 @@
+#include "llvm/ADT/AllocatorList.h"
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -179,7 +180,7 @@ static std::unique_ptr<ExprAST> ParseNumberExpr() {
 }
 
 /// parenexpr ::= '(' expression ')'
-static std::unique_ptr<ExprAST> ParseParenAST() {
+static std::unique_ptr<ExprAST> ParseParenExpr() {
     getNextToken(); // eat (.
     auto V = ParseExpression();
     // TODO: Why do we need to return a nullptr instead of reporting an error? Because we have reported the error when parse expression.
@@ -232,7 +233,7 @@ static std::unique_ptr<ExprAST> ParsePrimary() {
         case tok_indentifier:
             return ParseIdentifierExpr();
         case '(':
-            return ParseParenAST();
+            return ParseParenExpr();
         default:
             return LogError("unknown token when expecting an expression");
     }
