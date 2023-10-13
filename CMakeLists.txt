@@ -14,6 +14,7 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 set(CMAKE_C_COMPILER "/usr/bin/clang-17")
 set(CMAKE_CXX_COMPILER "/usr/bin/clang++-17")
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_ENABLE_EXPORTS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include_directories(${LLVM_INCLUDE_DIRS} ${PROJECT_SOURCE_DIR}/inc)
