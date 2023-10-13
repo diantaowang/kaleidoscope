@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <llvm-17/llvm/IR/BasicBlock.h>
 #include <map>
 #include <memory>
 #include <string>
@@ -619,6 +620,99 @@ Value *IfExprAST::codegen() {
 //   goto loop
 // loop:
 //   variable = phi [start, loopheader], [nextvariable, loopend]
+//   endcond = endexpr
+//   br endcond, loopbody, afterloop
+// loopbody:
+//   bodyexpr
+//   step = stepexpr
+//   nextvariable = variable + step
+//   goto loop
+// afterloop:
+Value *ForExprAST::codegen() {
+    // Emit the start code first, without 'variable' in scope.
+    Value *StartVal = Start->codegen();
+    if (!StartVal)
+        return nullptr;
+
+    // Make the new basic block for the loop header, inserting after current block.
+    Function *TheFunction = Builder->GetInsertBlock()->getParent();
+    BasicBlock *PreheaderBB = Builder->GetInsertBlock();
+    BasicBlock *LoopBB = BasicBlock::Create(*TheContext, "loop", TheFunction);
+
+    // Insert an explicit fall through from the current block to the LoopBB.
+    Builder->CreateBr(LoopBB);
+
+    // Start insertion in LoopBB.
+    Builder->SetInsertPoint(LoopBB);
+
+    // Start the PHI node with an entry for Start.
+    PHINode *Variable = Builder->CreatePHI(Type::getDoubleTy(*TheContext), 2, VarName);
+    Variable->addIncoming(StartVal, PreheaderBB);
+
+    // Within the loop, the variable is defined equal to the PHI node.  If it
+    // shadows an existing variable, we have to restore it, so save it now.
+    Value *OldVal = NamedValues[VarName];
+    NamedValues[VarName] = Variable; 
+    
+    // Compute the end condition.
+    Value *EndCond = End->codegen();
+    if (!EndCond)
+        return nullptr;
+
+    // Convert condition to a bool by comparing non-equal to 0.0.
+    EndCond = Builder->CreateFCmpONE(EndCond, 
+        ConstantFP::get(*TheContext, APFloat(0.0)), "loopcond");
+
+    // Insert the conditional branch into the end of LoopEndBB.
+    BasicBlock *LoopBodyBB = BasicBlock::Create(*TheContext, "loopbody", TheFunction);
+    BasicBlock *AfterBB = BasicBlock::Create(*TheContext, "afterloop");
+    Builder->CreateCondBr(EndCond, LoopBodyBB, AfterBB);
+
+    Builder->SetInsertPoint(LoopBodyBB);
+
+    // Emit the body of the loop.  This, like any other expr, can change the
+    // current BB.  Note that we ignore the value computed by the body, but don't
+    // allow an error.
+    if (!Body->codegen())
+        return nullptr;
+
+    // Emit the step value.
+    Value *StepVal = nullptr;
+    if (Step) {
+        StepVal = Step->codegen();
+        if (!StepVal)
+            return nullptr;
+    } else {
+        // If not specified, use 1.0.
+        StepVal = ConstantFP::get(*TheContext, APFloat(1.0));
+    }
+
+    Value *NextVal = Builder->CreateFAdd(Variable, StepVal, "nextvar");
+    // Add a new entry to the PHI node for the backedge.
+    BasicBlock *LoopEndBB = Builder->GetInsertBlock();
+    Variable->addIncoming(NextVal, LoopEndBB);
+
+    Builder->CreateBr(LoopBB);
+
+    TheFunction->insert(TheFunction->end(), AfterBB);
+    Builder->SetInsertPoint(AfterBB);
+
+    // Restore the unshadowed variable. 
+    if (OldVal)
+        NamedValues[VarName] = OldVal;
+    else
+        NamedValues.erase(VarName);
+
+    // for expr always returns 0.0.
+    return Constant::getNullValue(Type::getDoubleTy(*TheContext));
+}
+
+// Output for-loop as:
+//   ...
+//   start = startexpr
+//   goto loop
+// loop:
+//   variable = phi [start, loopheader], [nextvariable, loopend]
 //   ...
 //   bodyexpr
 //   ...
@@ -628,7 +722,7 @@ Value *IfExprAST::codegen() {
 //   endcond = endexpr
 //   br endcond, loop, afterloop
 // afterloop:
-Value *ForExprAST::codegen() {
+/*Value *ForExprAST::codegen() {
     // Emit the start code first, without 'variable' in scope.
     Value *StartVal = Start->codegen();
     if (!StartVal)
@@ -703,7 +797,7 @@ Value *ForExprAST::codegen() {
 
     // for expr always returns 0.0.
     return Constant::getNullValue(Type::getDoubleTy(*TheContext));
-}
+}*/
 
 Function *PrototypeAST::codegen() {
     // Make the function type:  double(double,double) etc.
